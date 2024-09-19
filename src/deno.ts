@@ -107,10 +107,15 @@ export interface InfoOptions {
 
 let tmpDir: string | undefined;
 
+const infoCache: Record<string, InfoOutput> = {};
+
 async function info(
   specifier: string,
   options: InfoOptions,
 ): Promise<InfoOutput> {
+  if (infoCache[specifier]) {
+    return infoCache[specifier];
+  }
   const opts = {
     args: ["info", "--json"],
     cwd: undefined as string | undefined,
@@ -151,7 +156,16 @@ async function info(
     throw new Error(`Failed to call 'deno info' on '${specifier}'`);
   }
   const txt = new TextDecoder().decode(output.stdout);
-  return JSON.parse(txt);
+  const info = JSON.parse(txt);
+  if (
+    specifier.startsWith("npm:") ||
+    specifier.startsWith("jsr:") ||
+    specifier.startsWith("http:") ||
+    specifier.startsWith("https:")
+  ) {
+    infoCache[specifier] = info;
+  }
+  return info;
 }
 
 export class InfoCache {
@@ -238,11 +252,8 @@ export class InfoCache {
     if (specifiers.length === 1) {
       specifier = specifiers[0];
     } else {
-      specifier = `data:application/javascript,${
-        encodeURIComponent(
-          specifiers.map((s) => `import ${JSON.stringify(s)};`).join(""),
-        )
-      }`;
+      await Promise.all(specifiers.map((v) => this.#populate([v])));
+      return;
     }
     const { modules, redirects, npmPackages } = await info(
       specifier,
